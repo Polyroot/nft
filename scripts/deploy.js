@@ -1,29 +1,60 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// You can also run a script with `npx hardhat run <script>`. If you do that, Hardhat
-// will compile your contracts, add the Hardhat Runtime Environment's members to the
-// global scope, and execute the script.
 const hre = require("hardhat");
+const ethers = hre.ethers;
+const fs = require("fs");
+const path = require("path");
 
 async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-  const unlockTime = currentTimestampInSeconds + ONE_YEAR_IN_SECS;
 
-  const lockedAmount = hre.ethers.utils.parseEther("1");
+  //deployer - это аккаунт владельца смарт контракта
+  const [deployer] = await ethers.getSigners()
+  console.log("Deploying with", await deployer.getAddress())
 
-  const Lock = await hre.ethers.getContractFactory("Lock");
-  const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
+  const Nft = await ethers.getContractFactory("Nft", deployer)
+  const nft = await Nft.deploy()
+  await nft.deployed()
 
-  await lock.deployed();
+  //сохраняем смартконтракты для фронтенда
+  saveFrontendFiles({
+    //у нас только один смартконтракт
+    Nft: nft
+  })
 
-  console.log("Lock with 1 ETH deployed to:", lock.address);
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+function saveFrontendFiles(contracts) {
+  //будем сохранять скомпилированные смарт контракты в src/contracts
+  const contractsDir = path.join(__dirname, '/..', 'src/contracts')
+
+  //если папка contracts не создана, то мы её создаём
+  if(!fs.existsSync(contractsDir)) {
+    fs.mkdirSync(contractsDir)
+  }
+
+  //перемещаем смарт контракты в эту папку
+  Object.entries(contracts).forEach((contract_item) => {
+    const [name, contract] = contract_item
+    if (contract) {
+      //первый файл с адресом смарт контракта
+      fs.writeFileSync(
+        path.join(contractsDir, '/', name + '-contract-address.json'),
+        JSON.stringify({[name]: contract.address}, undefined, 2)
+      )
+    }
+
+    //артифайт смарт контракта
+    const ContractArtifact = hre.artifacts.readArtifactSync(name)
+
+    //второй файл с артифактом (интерфейсом) смарт контракта
+    fs.writeFileSync(
+      path.join(contractsDir, '/', name + '.json'),
+      JSON.stringify(ContractArtifact, null, 2)
+    )
+  })
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
